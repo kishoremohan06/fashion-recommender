@@ -1,0 +1,5 @@
+/* We use Tailwind CSS, but this file ensures the font is smooth */
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
