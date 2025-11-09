@@ -3,6 +3,7 @@ import numpy as np
 import random
 import io
 import torch
+import re
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -11,24 +12,24 @@ from sentence_transformers import SentenceTransformer, util
 from PIL import Image
 
 # --- 1. SETUP & MODEL LOADING ---
-print("--- Starting Visual Outfit Completer Server (v4 - DType Fix) ---")
+print("--- Starting Visual Outfit Completer Server (v5 - FINAL Fix) ---")
 
 # --- Configuration ---
 METADATA_FILE = 'polyvore_item_metadata.json'
-EMBEDDINGS_FILE = 'visual_embeddings.json'
-MODEL_NAME = 'clip-ViT-B-32'
+EMBEDDINGS_FILE = 'visual_embeddings.json' 
+VISUAL_MODEL_NAME = 'clip-ViT-B-32'
 
 # --- Global Variables ---
 app = Flask(__name__)
 CORS(app) 
 item_metadata = {}
 item_embeddings = {} 
-category_buckets = {} 
 item_id_to_matrix_index = {}
 all_item_vectors = np.array([])
 clip_model = None
 device = 'cpu' 
-CATEGORY_TEXT_VECTORS = {} # Will hold our pre-computed text vectors
+CATEGORY_TEXT_VECTORS = {}
+category_buckets = {} # This will now be correctly populated
 
 # --- Context Rules ---
 CONTEXT_RULES = {
@@ -72,6 +73,23 @@ def check_for_gpu():
         print("--- 🐢 WARNING: No GPU detected. Using CPU. ---")
         device = 'cpu'
 
+def get_gender_from_categories(category_list):
+    """Parses the category list from metadata to find a gender."""
+    has_men = False
+    has_women = False
+    for cat in category_list:
+        c = cat.lower()
+        if "men's" in c or "male" in c:
+            has_men = True
+        if "women's" in c or "female" in c:
+            has_women = True
+    
+    if has_men and not has_women:
+        return "men"
+    if has_women and not has_men:
+        return "women"
+    return "unisex" # Default if both or neither are specified
+
 def load_all_data():
     global item_metadata, item_embeddings, category_buckets
     global item_id_to_matrix_index, all_item_vectors, clip_model, CATEGORY_TEXT_VECTORS
@@ -80,8 +98,8 @@ def load_all_data():
     
     try:
         # 1. Load CLIP model
-        print(f"Loading CLIP model '{MODEL_NAME}' into memory...")
-        clip_model = SentenceTransformer(MODEL_NAME, device=device)
+        print(f"Loading CLIP model '{VISUAL_MODEL_NAME}'...")
+        clip_model = SentenceTransformer(VISUAL_MODEL_NAME, device=device)
         print("CLIP model loaded successfully.")
 
         # 2. Load metadata
@@ -90,39 +108,51 @@ def load_all_data():
             item_metadata = json.load(f)
         print(f"Loaded {len(item_metadata)} item details.")
 
-        # 3. Load visual embeddings
+        # 3. Load FULL visual embeddings
         print(f"Loading item embeddings (Visual ML model) from '{EMBEDDINGS_FILE}'...")
         with open(EMBEDDINGS_FILE, 'r') as f:
             item_embeddings = json.load(f)
         print(f"Loaded {len(item_embeddings)} visual ML vectors.")
 
-        # 4. Build buckets and vector matrix
-        print("Building category buckets for outfit completion...")
+        # 4. Build GENDERED category buckets and vector matrix
+        print("Building GENDERED category buckets for outfit completion...")
         
         temp_vectors = []
         current_index = 0
+        
         for item_id, vector in item_embeddings.items():
-            # We explicitly cast to float32 here to prevent dtype errors later
+            
+            # A) Add to vector matrix
             temp_vectors.append(np.array(vector, dtype=np.float32)) 
             item_id_to_matrix_index[item_id] = current_index
-            
-            if item_id in item_metadata:
-                details = item_metadata[item_id]
-                category = details.get('semantic_category', 'unknown').strip() 
-                if category not in category_buckets:
-                    category_buckets[category] = []
-                category_buckets[category].append(item_id)
-            
             current_index += 1
             
-        all_item_vectors = np.array(temp_vectors)
-        print(f"Created {len(category_buckets)} category buckets.")
+            if item_id not in item_metadata:
+                continue 
+            
+            # B) Add to GENDERED bucket
+            details = item_metadata[item_id]
+            category = details.get('semantic_category', 'unknown').strip()
+            
+            # --- THIS IS THE V5 FIX ---
+            # We determine the *true* gender of the item
+            gender = get_gender_from_categories(details.get('categories', []))
+            
+            # Create the specific bucket key (e.g., "shoes_men", "shoes_women", "shoes_unisex")
+            bucket_key = f"{category}_{gender}" 
+            
+            if bucket_key not in category_buckets:
+                category_buckets[bucket_key] = []
+            category_buckets[bucket_key].append(item_id)
+            # --- END OF V5 FIX ---
+
+        all_item_vectors = np.array(temp_vectors, dtype=np.float32)
+        print(f"Created {len(category_buckets)} GENDERED category buckets.")
         print(f"Vector matrix shape: {all_item_vectors.shape}")
 
         # 5. Pre-compute category text vectors
         print("Pre-computing text vectors for category sanity checks...")
         with torch.no_grad():
-            # Encode and ensure they are float32
             text_vectors = clip_model.encode(CATEGORY_TEXT_QUERIES, convert_to_tensor=True, device=device).to(torch.float32)
         
         for i, text_query in enumerate(CATEGORY_TEXT_QUERIES):
@@ -130,7 +160,7 @@ def load_all_data():
             CATEGORY_TEXT_VECTORS[category_name] = text_vectors[i]
         print("Category text vectors are ready.")
         
-        print("\n--- Server is ready and 'VISUAL Brain' is online. ---")
+        print("\n--- Server is ready and 'VISUAL Gender-Aware Brain' is online. ---")
 
     except FileNotFoundError as e:
         print(f"\n--- !!! FATAL ERROR !!! ---\nCould not find a data file: {e.filename}")
@@ -169,16 +199,18 @@ def get_recommendations_from_catalog():
     data = request.json
     seed_item_id = data.get('seed_item_id')
     context_key = data.get('context_key', 'any')
+    gender_key = data.get('gender_key', 'women') # Get gender
+    
     print(f"\n--- Catalog Outfit Request ---")
     print(f"  > Seed Item: {seed_item_id}")
-    try:
-        # We load the vector as a float32 numpy array
-        seed_vector_np = all_item_vectors[item_id_to_matrix_index[seed_item_id]]
+    print(f"  > Gender:    {gender_key}")
 
+    try:
+        seed_vector_np = all_item_vectors[item_id_to_matrix_index[seed_item_id]]
         seed_details = item_metadata[seed_item_id]
         seed_category = seed_details.get('semantic_category', 'unknown').strip()
         
-        final_outfit = find_complete_outfit(seed_vector_np, seed_category, context_key)
+        final_outfit = find_complete_outfit(seed_vector_np, seed_category, context_key, gender_key)
         
         seed_item_data = {
             "id": seed_item_id,
@@ -207,23 +239,28 @@ def recommend_by_upload():
     print("\n--- Image Upload Outfit Request ---")
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
+    
     file = request.files['file']
     context_key = request.form.get('context_key', 'any')
+    gender_key = request.form.get('gender_key', 'women') # Get gender
+    print(f"  > Gender: {gender_key}")
+
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
+
     try:
         image_bytes = file.read()
         uploaded_image = Image.open(io.BytesIO(image_bytes))
-        print("  > Encoding uploaded image...")
+
+        print("  > Encoding uploaded image (Visual)...")
         with torch.no_grad():
-            # Ensure the output is float32
             seed_vector_tensor = clip_model.encode([uploaded_image], convert_to_tensor=True, device=device).to(torch.float32)
         
         print("  > Guessing image category...")
         seed_category = guess_image_category(seed_vector_tensor)
         print(f"  > Guessed category: {seed_category}")
 
-        final_outfit = find_complete_outfit(seed_vector_tensor.cpu().numpy(), seed_category, context_key)
+        final_outfit = find_complete_outfit(seed_vector_tensor.cpu().numpy(), seed_category, context_key, gender_key)
         
         print(f"  > Found {len(final_outfit)} items. Sending outfit.")
         return jsonify(final_outfit)
@@ -239,29 +276,21 @@ def recommend_by_upload():
 # --- 3. CORE LOGIC (THE "BRAIN") ---
 
 def guess_image_category(image_vector_tensor):
-    """
-    Compares an image vector to our pre-computed text vectors
-    to find the most likely category.
-    """
-    # text_vectors is already float32 from load_all_data
+    """Compares an image vector to our pre-computed text vectors."""
     text_vectors = torch.stack(list(CATEGORY_TEXT_VECTORS.values())).to(device)
-    
-    # image_vector_tensor is now also float32
-    similarities = util.cos_sim(image_vector_tensor, text_vectors)
+    similarities = util.cos_sim(image_vector_tensor.to(torch.float32), text_vectors) # Ensure float32
     similarity_scores = similarities[0].cpu().numpy()
-
     best_match_index = np.argmax(similarity_scores)
     best_category_name = list(CATEGORY_TEXT_VECTORS.keys())[best_match_index]
-    
     return best_category_name
 
 
-def find_complete_outfit(seed_vector_np, seed_category, context_key):
+def find_complete_outfit(seed_vector_np, seed_category, context_key, gender_key):
     """
-    This is the core "Outfit Completer" logic.
-    It now includes a "SANITY CHECK" to filter mislabeled items.
+    Core "Outfit Completer" logic.
+    GENDER-AWARE (v5) and uses the SANITY CHECK.
     """
-    print(f"  > Finding outfit for seed category '{seed_category}' and context '{context_key}'")
+    print(f"  > Finding outfit for: [Category: {seed_category}], [Context: {context_key}], [Gender: {gender_key}]")
     
     required_slots = CONTEXT_RULES.get(context_key, [])
     final_outfit = []
@@ -269,7 +298,6 @@ def find_complete_outfit(seed_vector_np, seed_category, context_key):
     if seed_vector_np.ndim == 1:
         seed_vector_np = seed_vector_np.reshape(1, -1)
     
-    # Ensure seed_vector is float32, just in case
     seed_vector_np = seed_vector_np.astype(np.float32)
 
     for slot_category in required_slots:
@@ -277,26 +305,39 @@ def find_complete_outfit(seed_vector_np, seed_category, context_key):
         if slot_category == seed_category:
             continue 
             
-        item_ids_in_bucket = category_buckets.get(slot_category)
+        # --- NEW GENDER LOGIC (V5) ---
+        # 1. Define the buckets to search, based on the user's gender choice.
+        search_bucket_keys = []
+        if gender_key == 'men':
+            search_bucket_keys = [f"{slot_category}_men", f"{slot_category}_unisex"]
+        elif gender_key == 'women':
+            search_bucket_keys = [f"{slot_category}_women", f"{slot_category}_unisex"]
+        else: # 'unisex'
+            search_bucket_keys = [f"{slot_category}_unisex"]
+
+        # 2. Get all item IDs from this combined pool of buckets
+        combined_item_ids_in_bucket = []
+        for key in search_bucket_keys:
+            if key in category_buckets:
+                combined_item_ids_in_bucket.extend(category_buckets[key])
         
-        if not item_ids_in_bucket:
-            print(f"  > Warning: No items found in bucket '{slot_category}'. Skipping.")
+        if not combined_item_ids_in_bucket:
+            print(f"  > Warning: No items found in buckets {search_bucket_keys}. Skipping.")
             continue
+        # --- END GENDER LOGIC (V5) ---
             
-        valid_item_ids_in_bucket = [item_id for item_id in item_ids_in_bucket if item_id in item_id_to_matrix_index]
+        valid_item_ids_in_bucket = [item_id for item_id in combined_item_ids_in_bucket if item_id in item_id_to_matrix_index]
         if not valid_item_ids_in_bucket:
-            print(f"  > Warning: Items in bucket '{slot_category}' but not in vector matrix. Skipping.")
+            print(f"  > Warning: Items in buckets but not in vector matrix. Skipping.")
             continue
 
         indices = [item_id_to_matrix_index[item_id] for item_id in valid_item_ids_in_bucket]
-        # all_item_vectors is already float32 from load_all_data
         bucket_vectors = all_item_vectors[indices]
         
-        # This is now float32 vs float32
         similarities = cosine_similarity(seed_vector_np, bucket_vectors)
         similarity_scores = similarities[0]
         
-        # --- NEW SANITY CHECK LOOP ---
+        # --- SANITY CHECK LOOP ---
         top_k_indices = np.argsort(similarity_scores)[-5:][::-1] 
         
         found_item = False
@@ -304,14 +345,8 @@ def find_complete_outfit(seed_vector_np, seed_category, context_key):
             best_item_id = valid_item_ids_in_bucket[i]
             best_item_score = similarity_scores[i]
             
-            # --- THIS IS THE SANITY CHECK ---
-            # Get the vector, which is already float32
             item_vector_np = all_item_vectors[item_id_to_matrix_index[best_item_id]]
-            
-            # --- THIS IS THE FIX ---
-            # Convert the numpy array to a float32 tensor
             item_vector_tensor = torch.tensor(item_vector_np, dtype=torch.float32).to(device).reshape(1, -1)
-            # --- END OF FIX ---
 
             guessed_category = guess_image_category(item_vector_tensor)
             
@@ -329,7 +364,6 @@ def find_complete_outfit(seed_vector_np, seed_category, context_key):
                 found_item = True
                 break 
             else:
-                # FAILURE!
                 print(f"  > Discarding mislabeled item: {best_item_id}. Wanted '{slot_category}', but image looks like '{guessed_category}'.")
         
         if not found_item:
@@ -341,4 +375,5 @@ def find_complete_outfit(seed_vector_np, seed_category, context_key):
 # --- 4. RUN THE SERVER ---
 if __name__ == '__main__':
     load_all_data()
+    # We use server_visual as the app name to avoid confusion
     app.run(debug=True, port=5000)
