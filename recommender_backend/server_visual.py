@@ -41,7 +41,7 @@ CONTEXT_RULES = {
     "job_interview": ["tops", "bottoms", "shoes", "bags", "outerwear"],
     "casual_weekend": ["tops", "bottoms", "shoes", "bags", "sunglasses", "hats"],
     "party": ["all-body", "shoes", "bags", "jewellery"],
-    "sporty": ["tops", "bottoms", "shoes", "hats"]
+    "sporty": ["tops", "bottoms", "shoes", "bags", "hats"]
 }
 
 # --- Category Guesser Config ---
