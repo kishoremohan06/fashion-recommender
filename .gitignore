@@ -9,6 +9,7 @@ __pycache__/
 
 # Large generated data (re-creatable from code)
 recommender_backend/item_embeddings.json
+recommender_backend/visual_embeddings.json
 
 # Large raw data assets
 recommender_frontend/images/

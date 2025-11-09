@@ -3,76 +3,120 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Outfit Recommender</title>
-    <!-- We will load Tailwind CSS for easy styling -->
+    <title>Visual Outfit Builder</title>
+    <!-- 1. Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="style.css">
-    <!-- Uses the Inter font -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- 2. Load our custom font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- 3. Load our custom styles -->
+    <link rel="stylesheet" href="style.css">
+    <script>
+        // Custom Tailwind configuration
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                },
+            },
+        }
+    </script>
 </head>
-<body class="bg-gray-100 font-inter text-gray-900">
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
 
-    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
-        <header class="text-center mb-8">
-            <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-2">Context-Aware Outfit Builder</h1>
-            <p class="text-lg text-gray-600">Powered by ML Text Embeddings</p>
+    <div class="w-full max-w-4xl mx-auto">
+        <!-- Main Title -->
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">Context-Aware Outfit Builder</h1>
+            <p class="text-gray-500">Powered by CLIP Visual AI</p>
         </header>
 
-        <!-- Controls -->
-        <div class="p-6 bg-white rounded-2xl shadow-lg mb-8">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <!-- Seed Item Dropdown -->
-                <div class="flex flex-col space-y-2 md:col-span-2">
-                    <label for="seed-item" class="text-sm font-semibold text-gray-700">1. Select a "Seed" Item</label>
-                    <select id="seed-item" class="p-3 border border-gray-300 rounded-lg w-full text-base focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="" id="seed-loading-option">Connecting to server...</option>
-                    </select>
+        <!-- Main UI Card -->
+        <main class="bg-white rounded-lg shadow-xl p-6 sm:p-8">
+            
+            <!-- 1. TABS: Catalog vs Upload -->
+            <div class="mb-5 border-b border-gray-200">
+                <nav class="flex -mb-px space-x-6" id="tab-buttons">
+                    <button class="tab-button active" data-tab="catalog-tab">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+                        1. Select from Catalog
+                    </button>
+                    <button class="tab-button" data-tab="upload-tab">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        1. Upload Your Item
+                    </button>
+                </nav>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                
+                <!-- 2. LEFT SIDE: Input Controls -->
+                <div class="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                    <!-- Tab Content 1: Catalog Selector -->
+                    <div class="tab-content active" id="catalog-tab">
+                        <label for="seed-item" class="block text-sm font-medium text-gray-700 mb-1">Select a "Seed" Item</label>
+                        <select id="seed-item" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="" disabled selected>Connecting to server...</option>
+                        </select>
+                    </div>
+
+                    <!-- Tab Content 2: Upload Box -->
+                    <div class="tab-content hidden" id="upload-tab">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Drag & Drop or Click to Upload</label>
+                        <div id="file-drop-zone" class="drop-zone relative w-full h-32 border-2 border-dashed border-gray-300 rounded-md flex items-center justify-center text-gray-400 text-sm p-4 text-center">
+                            Drop an image here
+                            <input type="file" id="file-input" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" accept="image/png, image/jpeg">
+                        </div>
+                        <div id="file-preview" class="hidden mt-2 text-sm text-gray-600 flex items-center">
+                            <img id="preview-image" src="" alt="Preview" class="w-10 h-10 object-cover rounded mr-2">
+                            <span id="preview-filename">filename.jpg</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Context Selector (Always visible) -->
+                    <div>
+                        <label for="context" class="block text-sm font-medium text-gray-700 mb-1">2. Select an Occasion</label>
+                        <select id="context" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="any">Any Occasion</option>
+                            <option value="casual_weekend">Casual Weekend</option>
+                            <option value="job_interview">Job Interview</option>
+                            <option value="party">Party / Night Out</option>
+                            <option value="sporty">Sporty / Active</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- 3. RIGHT SIDE: Build Button -->
+                <div class="md:col-span-1 md:mt-6">
+                    <button id="build-outfit-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-md shadow-lg hover:bg-blue-700 transition duration-300 disabled:opacity-50">
+                        Build Outfit
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 4. LOADER & RESULT AREA -->
+            <div class="mt-8">
+                <!-- Loading Spinner -->
+                <div id="loader" class="hidden text-center text-gray-500">
+                    <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-500 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status"></div>
+                    <p class="mt-2 text-sm">Finding the perfect items...</p>
                 </div>
 
-                <!-- Context Dropdown -->
-                <div class="flex flex-col space-y-2">
-                    <label for="context" class="text-sm font-semibold text-gray-700">2. Select an Occasion</label>
-                    <select id="context" class="p-3 border border-gray-300 rounded-lg w-full text-base focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="any">Any Occasion</option>
-                        <option value="job_interview">Job Interview</option>
-                        <option value="casual_weekend">Casual Weekend</option>
-                        <option value="party">Party / Night Out</option>
-                        <option value="sporty">Sporty / Active</option>
-                    </select>
+                <!-- Title for results -->
+                <h2 id="outfit-title" class="text-xl font-semibold text-gray-800 mb-4 hidden">Your Complete Outfit</h2>
+                
+                <!-- Results Grid -->
+                <div id="outfit-display" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    <!-- Recommended items will be injected here by app.js -->
                 </div>
             </div>
 
-            <!-- Build Button -->
-            <button id="build-outfit-btn" class="w-full mt-6 bg-blue-600 text-white font-bold py-3 px-6 rounded-lg text-lg hover:bg-blue-700 transition-all duration-200 shadow-md disabled:opacity-50 disabled:cursor-not-allowed" disabled>
-                Build Outfit
-            </button>
-        </div>
-
-        <!-- Loading Spinner (Hidden by default) -->
-        <div id="loader" class="text-center p-10 hidden">
-            <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mx-auto"></div>
-            <p id="loader-text" class="text-lg text-gray-600 mt-4">Finding the perfect items...</p>
-        </div>
-
-        <!-- Error Message Box (Hidden by default) -->
-        <div id="error-box" class="text-center p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg hidden mb-8">
-            <strong class="font-bold">Error:</strong>
-            <span id="error-message">Could not connect to server.</span>
-        </div>
-
-        <!-- Results Display Area (Hidden by default) -->
-        <div id="results" class="hidden">
-            <h2 class="text-2xl font-bold mb-6 text-center">Your Complete Outfit</h2>
-            <!-- The grid for outfit cards -->
-            <div id="outfit-display" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
-                <!-- Cards will be injected here by app.js -->
-            </div>
-        </div>
+        </main>
     </div>
 
-    <!-- Import our JavaScript logic -->
+    <!-- 4. Load our JavaScript logic -->
     <script src="app.js"></script>
 </body>
 </html>

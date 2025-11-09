@@ -1,180 +1,302 @@
-document.addEventListener('DOMContentLoaded', () => {
-    
-    // --- CONFIG & ELEMENTS ---
-    const API_URL = "http://127.0.0.1:5000"; // Our Python "Brain" server
-    const seedItemSelect = document.getElementById('seed-item');
-    const contextSelect = document.getElementById('context');
-    const buildOutfitBtn = document.getElementById('build-outfit-btn');
-    const outfitDisplay = document.getElementById('outfit-display');
-    const resultsContainer = document.getElementById('results');
-    const loader = document.getElementById('loader');
-    const loaderText = document.getElementById('loader-text');
-    const errorBox = document.getElementById('error-box');
-    const errorMessage = document.getElementById('error-message');
-    const seedLoadingOption = document.getElementById('seed-loading-option');
+// --- 1. CONSTANTS & GLOBAL STATE ---
+const API_URL = "http://127.0.0.1:5000";
+let allItemData = [];
+let activeTab = 'catalog-tab'; // 'catalog-tab' or 'upload-tab'
+let uploadedFile = null;
 
-    // --- 1. INITIALIZATION ---
+// --- 2. DOM ELEMENTS ---
+const seedItemSelect = document.getElementById("seed-item");
+const contextSelect = document.getElementById("context");
+const buildBtn = document.getElementById("build-outfit-btn");
+const outfitDisplay = document.getElementById("outfit-display");
+const outfitTitle = document.getElementById("outfit-title");
+const loader = document.getElementById("loader");
 
-    /**
-     * Fetches the 50-item catalog from the server to fill the dropdown.
-     */
-    async function populateSeedItems() {
-        console.log("Connecting to server to get item catalog...");
-        try {
-            // This endpoint name /get_all_items matches the server.py
-            const response = await fetch(`${API_URL}/get_all_items`);
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.statusText}`);
-            }
-            const items = await response.json();
+// Tab elements
+const tabButtons = document.querySelectorAll(".tab-button");
+const tabContents = document.querySelectorAll(".tab-content");
 
-            // Clear the "loading" message
-            seedLoadingOption.remove(); 
+// Upload elements
+const dropZone = document.getElementById("file-drop-zone");
+const fileInput = document.getElementById("file-input");
+const filePreview = document.getElementById("file-preview");
+const previewImage = document.getElementById("preview-image");
+const previewFilename = document.getElementById("preview-filename");
 
-            // Add the 50 random items to the dropdown
-            items.forEach(item => {
-                const option = document.createElement('option');
-                option.value = item.id;
-                // Use title, or "Untitled" if title is missing
-                option.textContent = item.title || "Untitled Item";
-                option.dataset.category = item.category; // Store category
-                seedItemSelect.appendChild(option);
-            });
-
-            // Enable the build button
-            buildOutfitBtn.disabled = false;
-
-        } catch (error) {
-            console.error("Failed to populate seed items:", error);
-            showError("Could not connect to server. Please ensure the backend is running.");
-            seedLoadingOption.textContent = "Error: Could not load items";
-        }
-    }
-
-    // --- 2. EVENT LISTENERS ---
-    buildOutfitBtn.addEventListener('click', handleBuildOutfit);
-
-    // --- 3. CORE LOGIC ---
-
-    /**
-     * Called when "Build Outfit" is clicked.
-     */
-    async function handleBuildOutfit() {
-        const seed_item_id = seedItemSelect.value;
-        const context_key = contextSelect.value;
-
-        if (!seed_item_id) {
-            showError("Please select a seed item.");
-            return;
-        }
-
-        console.log(`Building outfit for: ${seed_item_id}, Context: ${context_key}`);
-        
-        showLoader("Finding the perfect items...");
-        
-        try {
-            // This endpoint /get_recommendations matches the server.py
-            const response = await fetch(`${API_URL}/get_recommendations`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    seed_item_id: seed_item_id,
-                    context_key: context_key
-                })
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || `Server error: ${response.statusText}`);
-            }
-
-            const outfitItems = await response.json();
-            
-            displayOutfit(outfitItems);
-
-        } catch (error) {
-            console.error("Error building outfit:", error);
-            showError(error.message);
-        } finally {
-            // This 'finally' block will run *no matter what*,
-            // guaranteeing the spinner is hidden and buttons are re-enabled.
-            // This is the fix for your bug.
-            hideLoader();
-        }
-    }
-
-    // --- 4. UI HELPER FUNCTIONS ---
-
-    /**
-     * Takes a list of outfit items and renders them to the page.
-     */
-    function displayOutfit(items) {
-        // Clear previous results
-        outfitDisplay.innerHTML = '';
-        resultsContainer.classList.remove('hidden');
-        hideError();
-
-        if (!items || items.length === 0) {
-            showError("No matching items found for this combination.");
-            return;
-        }
-
-        items.forEach(item => {
-            const card = document.createElement('div');
-            card.className = 'bg-white rounded-lg shadow-md overflow-hidden transform transition-all duration-300 hover:shadow-xl hover:-translate-y-1';
-            
-            let cardTitle = item.title || "Untitled";
-            // Truncate long titles
-            if (cardTitle.length > 50) {
-                cardTitle = cardTitle.substring(0, 50) + '...';
-            }
-
-            card.innerHTML = `
-                <div class="aspect-w-1 aspect-h-1 bg-gray-200">
-                    <img src="${item.image_url}" alt="${cardTitle}" class="w-full h-full object-cover object-center" onerror="this.src='https://placehold.co/300x300/e2e8f0/94a3b8?text=Image+Not+Found'">
-                </div>
-                <div class="p-4">
-                    <h3 class="text-sm font-semibold text-gray-800 truncate" title="${item.title || 'Untitled'}">${cardTitle}</h3>
-                    <p class="text-xs text-gray-500 uppercase font-medium">${item.category}</p>
-                </div>
-            `;
-            outfitDisplay.appendChild(card);
-        });
-    }
-
-    function showLoader(text) {
-        loaderText.textContent = text;
-        loader.classList.remove('hidden');
-        resultsContainer.classList.add('hidden'); // Hide old results
-        hideError();
-        
-        // Disable controls
-        buildOutfitBtn.disabled = true;
-        contextSelect.disabled = true;
-        seedItemSelect.disabled = true;
-    }
-
-    function hideLoader() {
-        loader.classList.add('hidden');
-        
-        // Re-enable controls
-        buildOutfitBtn.disabled = false;
-        contextSelect.disabled = false;
-        seedItemSelect.disabled = false;
-    }
-
-    function showError(message) {
-        errorMessage.textContent = message;
-        errorBox.classList.remove('hidden');
-        resultsContainer.classList.add('hidden');
-    }
-
-    function hideError() {
-        errorBox.classList.add('hidden');
-    }
-
-    // --- 5. START THE APP ---
+// --- 3. MAIN APP INITIALIZATION ---
+document.addEventListener("DOMContentLoaded", () => {
     populateSeedItems();
+    
+    // Main button listener
+    buildBtn.addEventListener('click', handleBuildOutfit);
+
+    // Tab switching logic
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabId = button.getAttribute('data-tab');
+            showTab(tabId);
+        });
+    });
+
+    // File Uploader listeners
+    setupFileUploader();
 });
+
+// --- 4. CORE LOGIC ---
+
+/**
+ * Main function called when "Build Outfit" is clicked.
+ * It checks which tab is active and calls the correct API.
+ */
+async function handleBuildOutfit() {
+    const context_key = contextSelect.value;
+    
+    // Clear previous results
+    outfitDisplay.innerHTML = "";
+    outfitTitle.classList.add('hidden');
+    showLoader("Finding the perfect items...");
+
+    try {
+        let recommendedItems = [];
+        let seedItem = null;
+
+        if (activeTab === 'catalog-tab') {
+            // --- OPTION 1: Get from Catalog ---
+            const seed_item_id = seedItemSelect.value;
+            if (!seed_item_id) {
+                alert("Please select a seed item first.");
+                hideLoader();
+                return;
+            }
+            recommendedItems = await recommendFromCatalog(seed_item_id, context_key);
+            
+            // The server sends the seed item back in the list
+            seedItem = recommendedItems.shift(); // Remove the first item (seed)
+
+        } else if (activeTab === 'upload-tab') {
+            // --- OPTION 2: Get from Upload ---
+            if (!uploadedFile) {
+                alert("Please upload an image first.");
+                hideLoader();
+                return;
+            }
+            recommendedItems = await recommendFromUpload(uploadedFile, context_key);
+            
+            // For uploads, the "seed item" is the preview image
+            seedItem = {
+                id: 'uploaded-item', // Use a placeholder ID
+                title: "Your Uploaded Item",
+                category: "Seed Item",
+                image_url: previewImage.src // Use the local preview URL
+            };
+        }
+
+        // Display the results
+        displayOutfit(seedItem, recommendedItems);
+
+    } catch (error) {
+        console.error("Error building outfit:", error);
+        outfitDisplay.innerHTML = `<p class="text-red-500 col-span-full"><strong>An error occurred.</strong><br>Could not get recommendations. Check the console and make sure your 'server_visual.py' is running.</p>`;
+    } finally {
+        hideLoader();
+    }
+}
+
+/**
+ * Calls the API for a catalog-based recommendation.
+ */
+async function recommendFromCatalog(seed_item_id, context_key) {
+    console.log(`Building outfit from catalog. Seed: ${seed_item_id}, Context: ${context_key}`);
+    const response = await fetch(`${API_URL}/get_recommendations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            seed_item_id: seed_item_id,
+            context_key: context_key
+        })
+    });
+    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+    return await response.json();
+}
+
+/**
+ * Calls the API for an image-upload-based recommendation.
+ */
+async function recommendFromUpload(file, context_key) {
+    console.log(`Building outfit from upload. File: ${file.name}, Context: ${context_key}`);
+    
+    // We use FormData to send a file
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('context_key', context_key);
+
+    const response = await fetch(`${API_URL}/recommend_by_upload`, {
+        method: 'POST',
+        body: formData // No 'Content-Type' header needed, browser sets it
+    });
+    if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+    return await response.json();
+}
+
+// --- 5. UI & DISPLAY FUNCTIONS ---
+
+/**
+ * Fetches the 50-item catalog from the server to fill the dropdown.
+ */
+async function populateSeedItems() {
+    console.log("Connecting to server for catalog...");
+    try {
+        const response = await fetch(`${API_URL}/get_all_items`);
+        if (!response.ok) throw new Error("Server not responding");
+        
+        let items = await response.json();
+        allItemData = items; // Save
+        items.sort((a, b) => a.title.localeCompare(b.title));
+
+        seedItemSelect.innerHTML = '<option value="" disabled selected>Select a "Seed" Item</option>';
+        items.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.id;
+            option.textContent = item.title;
+            seedItemSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error("Error populating items:", error);
+        seedItemSelect.innerHTML = '<option value="" disabled selected>Error: Could not connect</option>';
+    }
+}
+
+/**
+ * Renders the final outfit (seed item + recommendations) to the page.
+ */
+function displayOutfit(seedItem, recommendedItems) {
+    outfitDisplay.innerHTML = ""; // Clear
+    outfitTitle.classList.remove('hidden'); // Show title
+
+    if (!recommendedItems || recommendedItems.length === 0) {
+        outfitDisplay.innerHTML = "<p class='col-span-full text-gray-500'>No complementary items were found for this combination.</p>";
+    }
+
+    // 1. Create a card for the seed item
+    const seedCard = createItemCard(seedItem, true);
+    outfitDisplay.appendChild(seedCard);
+
+    // 2. Create cards for all recommended items
+    recommendedItems.forEach(item => {
+        const itemCard = createItemCard(item, false);
+        outfitDisplay.appendChild(itemCard);
+    });
+}
+
+/**
+ * Helper function to create a single HTML card for an item.
+ */
+function createItemCard(item, isSeedItem) {
+    const itemCard = document.createElement('div');
+    itemCard.className = 'outfit-item';
+    
+    let imageUrl = item.image_url;
+    
+    // For catalog items, we must construct the full path
+    // For uploaded items, the URL is a local blob: URL
+    if (item.id !== 'uploaded-item') {
+         imageUrl = `images/${item.id}.jpg`;
+    }
+
+    itemCard.innerHTML = `
+        <img src="${imageUrl}" alt="${item.title}" onerror="this.src='https://placehold.co/300x400/f0f2f5/ccc?text=Image+Missing'; this.onerror=null;">
+        <div class="item-details">
+            <p class="item-title" title="${item.title}">${item.title}</p>
+            <p class="item-category">${item.category}</p>
+        </div>
+    `;
+    return itemCard;
+}
+
+/**
+ * Handles the logic for switching between the "Catalog" and "Upload" tabs.
+ */
+function showTab(tabId) {
+    activeTab = tabId;
+    
+    // Update button styles
+    tabButtons.forEach(button => {
+        if (button.getAttribute('data-tab') === tabId) {
+            button.classList.add('active');
+        } else {
+            button.classList.remove('active');
+        }
+    });
+
+    // Show/hide tab content
+    tabContents.forEach(content => {
+        if (content.id === tabId) {
+            content.classList.remove('hidden');
+        } else {
+            content.classList.add('hidden');
+        }
+    });
+}
+
+// --- 6. FILE UPLOADER LOGIC ---
+
+/**
+ * Sets up all the event listeners for the drag-and-drop box.
+ */
+function setupFileUploader() {
+    // Click to upload
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            handleFile(e.target.files[0]);
+        }
+    });
+
+    // Drag and drop listeners
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drop-zone--over');
+    });
+    ['dragleave', 'dragend'].forEach(type => {
+        dropZone.addEventListener(type, () => {
+            dropZone.classList.remove('drop-zone--over');
+        });
+    });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drop-zone--over');
+        if (e.dataTransfer.files.length) {
+            handleFile(e.dataTransfer.files[0]);
+        }
+    });
+}
+
+/**
+ * Handles the selected file (from click or drop).
+ * It validates the file and shows a preview.
+ */
+function handleFile(file) {
+    if (!file || !file.type.startsWith('image/')) {
+        alert("Please upload a valid image file (jpg, png).");
+        return;
+    }
+    
+    uploadedFile = file; // Save the file for when we click "Build"
+
+    // Show preview
+    previewFilename.textContent = file.name;
+    previewImage.src = URL.createObjectURL(file); // Create a temporary local URL
+    filePreview.classList.remove('hidden');
+}
+
+// --- 7. LOADER HELPER FUNCTIONS ---
+
+function showLoader(message) {
+    loader.querySelector('p').textContent = message;
+    loader.classList.remove('hidden');
+    buildBtn.disabled = true;
+}
+
+function hideLoader() {
+    loader.classList.add('hidden');
+    buildBtn.disabled = false;
+}

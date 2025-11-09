@@ -1,5 +1,52 @@
-/* We use Tailwind CSS, but this file ensures the font is smooth */
+/* Use the smooth 'Inter' font */
 body {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    font-family: 'Inter', sans-serif;
+}
+
+/* --- Tab Styles --- */
+.tab-button {
+    @apply flex items-center py-4 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap;
+}
+.tab-button.active {
+    @apply border-blue-500 text-blue-600;
+}
+.tab-content {
+    animation: fadeIn 0.5s;
+}
+
+/* --- File Drop Zone Styles --- */
+.drop-zone {
+    @apply transition-colors duration-200;
+}
+.drop-zone--over {
+    /* Style when user is dragging a file over the box */
+    @apply border-blue-500 bg-blue-50;
+}
+
+/* --- Outfit Card Styles --- */
+.outfit-item {
+    @apply bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200 transition-all hover:shadow-md;
+}
+.outfit-item img {
+    @apply w-full h-48 sm:h-56 object-cover;
+}
+.item-details {
+    @apply p-3;
+}
+.item-title {
+    @apply font-semibold text-sm text-gray-800 truncate;
+}
+.item-category {
+    @apply text-xs text-gray-500 uppercase font-medium tracking-wide;
+}
+
+/* --- Helper Class --- */
+.hidden {
+    display: none;
+}
+
+/* --- Simple fade-in animation --- */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
