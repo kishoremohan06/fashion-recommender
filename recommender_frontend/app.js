@@ -7,6 +7,7 @@ let uploadedFile = null;
 // --- 2. DOM ELEMENTS ---
 const seedItemSelect = document.getElementById("seed-item");
 const contextSelect = document.getElementById("context");
+const genderSelect = document.getElementById("gender"); // <-- NEW GENDER ELEMENT
 const buildBtn = document.getElementById("build-outfit-btn");
 const outfitDisplay = document.getElementById("outfit-display");
 const outfitTitle = document.getElementById("outfit-title");
@@ -50,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
  */
 async function handleBuildOutfit() {
     const context_key = contextSelect.value;
+    const gender_key = genderSelect.value; // <-- NEW: Get selected gender
     
     // Clear previous results
     outfitDisplay.innerHTML = "";
@@ -68,7 +70,8 @@ async function handleBuildOutfit() {
                 hideLoader();
                 return;
             }
-            recommendedItems = await recommendFromCatalog(seed_item_id, context_key);
+            // Pass the gender_key to the API
+            recommendedItems = await recommendFromCatalog(seed_item_id, context_key, gender_key);
             
             // The server sends the seed item back in the list
             seedItem = recommendedItems.shift(); // Remove the first item (seed)
@@ -80,11 +83,11 @@ async function handleBuildOutfit() {
                 hideLoader();
                 return;
             }
-            recommendedItems = await recommendFromUpload(uploadedFile, context_key);
+            // Pass the gender_key to the API
+            recommendedItems = await recommendFromUpload(uploadedFile, context_key, gender_key);
             
             // For uploads, the "seed item" is the preview image
             seedItem = {
-                id: 'uploaded-item', // Use a placeholder ID
                 title: "Your Uploaded Item",
                 category: "Seed Item",
                 image_url: previewImage.src // Use the local preview URL
@@ -96,7 +99,7 @@ async function handleBuildOutfit() {
 
     } catch (error) {
         console.error("Error building outfit:", error);
-        outfitDisplay.innerHTML = `<p class="text-red-500 col-span-full"><strong>An error occurred.</strong><br>Could not get recommendations. Check the console and make sure your 'server_visual.py' is running.</p>`;
+        outfitDisplay.innerHTML = `<p class="text-red-500 col-span-full"><strong>An error occurred.</strong><br>Could not get recommendations. Check the console and make sure your server is running.</p>`;
     } finally {
         hideLoader();
     }
@@ -105,14 +108,15 @@ async function handleBuildOutfit() {
 /**
  * Calls the API for a catalog-based recommendation.
  */
-async function recommendFromCatalog(seed_item_id, context_key) {
-    console.log(`Building outfit from catalog. Seed: ${seed_item_id}, Context: ${context_key}`);
+async function recommendFromCatalog(seed_item_id, context_key, gender_key) {
+    console.log(`Building outfit from catalog. Seed: ${seed_item_id}, Context: ${context_key}, Gender: ${gender_key}`);
     const response = await fetch(`${API_URL}/get_recommendations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             seed_item_id: seed_item_id,
-            context_key: context_key
+            context_key: context_key,
+            gender_key: gender_key // <-- NEW: Send gender
         })
     });
     if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
@@ -122,13 +126,14 @@ async function recommendFromCatalog(seed_item_id, context_key) {
 /**
  * Calls the API for an image-upload-based recommendation.
  */
-async function recommendFromUpload(file, context_key) {
-    console.log(`Building outfit from upload. File: ${file.name}, Context: ${context_key}`);
+async function recommendFromUpload(file, context_key, gender_key) {
+    console.log(`Building outfit from upload. File: ${file.name}, Context: ${context_key}, Gender: ${gender_key}`);
     
-    // We use FormData to send a file
+    // We use FormData to send a file and other data
     const formData = new FormData();
     formData.append('file', file);
     formData.append('context_key', context_key);
+    formData.append('gender_key', gender_key); // <-- NEW: Send gender
 
     const response = await fetch(`${API_URL}/recommend_by_upload`, {
         method: 'POST',
@@ -150,7 +155,7 @@ async function populateSeedItems() {
         if (!response.ok) throw new Error("Server not responding");
         
         let items = await response.json();
-        allItemData = items; // Save
+        allItemData = items; 
         items.sort((a, b) => a.title.localeCompare(b.title));
 
         seedItemSelect.innerHTML = '<option value="" disabled selected>Select a "Seed" Item</option>';
@@ -173,13 +178,16 @@ function displayOutfit(seedItem, recommendedItems) {
     outfitDisplay.innerHTML = ""; // Clear
     outfitTitle.classList.remove('hidden'); // Show title
 
-    if (!recommendedItems || recommendedItems.length === 0) {
-        outfitDisplay.innerHTML = "<p class='col-span-full text-gray-500'>No complementary items were found for this combination.</p>";
+    if ((!recommendedItems || recommendedItems.length === 0) && !seedItem) {
+        outfitDisplay.innerHTML = "<p class='col-span-full text-gray-500'>No items were found for this combination.</p>";
+        return;
     }
 
     // 1. Create a card for the seed item
-    const seedCard = createItemCard(seedItem, true);
-    outfitDisplay.appendChild(seedCard);
+    if (seedItem) {
+        const seedCard = createItemCard(seedItem, true);
+        outfitDisplay.appendChild(seedCard);
+    }
 
     // 2. Create cards for all recommended items
     recommendedItems.forEach(item => {
@@ -196,10 +204,9 @@ function createItemCard(item, isSeedItem) {
     itemCard.className = 'outfit-item';
     
     let imageUrl = item.image_url;
-    
     // For catalog items, we must construct the full path
     // For uploaded items, the URL is a local blob: URL
-    if (item.id !== 'uploaded-item') {
+    if (!isSeedItem || (isSeedItem && !item.image_url.startsWith('blob:'))) {
          imageUrl = `images/${item.id}.jpg`;
     }
 
@@ -246,9 +253,7 @@ function showTab(tabId) {
 function setupFileUploader() {
     // Click to upload
     fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length) {
-            handleFile(e.target.files[0]);
-        }
+        handleFile(e.target.files[0]);
     });
 
     // Drag and drop listeners
@@ -267,6 +272,10 @@ function setupFileUploader() {
         if (e.dataTransfer.files.length) {
             handleFile(e.dataTransfer.files[0]);
         }
+    });
+    // Allow clicking the dropzone to open the file dialog
+    dropZone.addEventListener('click', () => {
+        fileInput.click();
     });
 }
 
@@ -294,9 +303,15 @@ function showLoader(message) {
     loader.querySelector('p').textContent = message;
     loader.classList.remove('hidden');
     buildBtn.disabled = true;
+    seedItemSelect.disabled = true;
+    contextSelect.disabled = true;
+    genderSelect.disabled = true; // <-- NEW
 }
 
 function hideLoader() {
     loader.classList.add('hidden');
     buildBtn.disabled = false;
+    seedItemSelect.disabled = false;
+    contextSelect.disabled = false;
+    genderSelect.disabled = false; // <-- NEW
 }
